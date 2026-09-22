@@ -60,4 +60,51 @@ function renderLogin() {
     ['U3', 'PHC / Rural Hospital staff', 'Accept referrals, schedule, verify readiness, revalidate before travel'],
     ['U4', 'Doctor / Clinician', 'Review vitals and results, decide next stage, sign off referrals'],
     ['U5', 'Lab / Pharmacy staff', 'Update reagent, equipment and medicine claims; upload results'],
-    ['U7', 'District 
+    ['U7', 'District Administrator', 'Monitor bottlenecks, readiness failures, overdue referrals'],
+    ['PT', 'Patient view', 'Printed / low-literacy care card in English, Marathi, Hindi']
+  ];
+  $('#app').innerHTML = `<div class="login"><div class="box">
+    <div class="row tight" style="align-items:center;gap:12px">${LOGO}<div><h1 style="margin:0;font-size:22px;letter-spacing:-.02em">CareRelay</h1>
+    <p class="muted" style="margin:2px 0 0">SIH26133 · care-readiness verification layer over eSanjeevani + ABDM</p></div></div>
+    <div class="banner b-info" style="margin:16px 0"><b>We do not book appointments. We verify that care is actually ready — and we say so when it is not.</b></div>
+    <p class="muted">Select a role to enter the prototype. All data on this device is demo data.</p>
+    <div class="roles">${roles.map(([id, n, d]) => `<button class="role" onclick="pick('${id}')"><b>${n}</b><small>${d}</small></button>`).join('')}</div>
+    <div class="row tight" style="margin-top:16px"><label style="margin:0">Patient-facing language</label>
+      ${['mr', 'en', 'hi'].map(l => `<button class="btn ${DB.meta.lang === l ? 'acc' : 'alt'} mini" onclick="DB.meta.lang='${l}';save();renderLogin()">${{ en: 'English', mr: 'मराठी', hi: 'हिंदी' }[l]}</button>`).join('')}
+    </div>
+    <p class="muted" style="margin-top:18px;font-size:13px">CareRelay runs on top of eSanjeevani and ABDM. No hospital installs a new system. Strengthening — not replacing — the public health system.</p>
+  </div></div>`;
+}
+function pick(id) {
+  if (id === 'PT') { DB.meta.role = 'PATIENT'; DB.meta.userId = 'U1'; save(); return go('card/R-1039'); }
+  const u = by(DB.users, id); DB.meta.role = u.role; DB.meta.userId = u.id; save();
+  go({ ASHA: 'asha', FACILITY: 'hospital', DOCTOR: 'doctor', LAB: 'lab', ADMIN: 'admin' }[u.role]);
+}
+
+/* ============================ 2. ASHA DASHBOARD ============================ */
+function scAsha() {
+  const mine = DB.patients.filter(p => p.createdBy === DB.meta.userId || true);
+  const myRefs = DB.referrals.filter(r => r.createdBy === DB.meta.userId || DB.meta.role !== 'ASHA');
+  const fu = DB.followups.filter(f => f.assignedTo === DB.meta.userId && f.state !== 'Done');
+  return head('ASHA field dashboard', esc(usr(DB.meta.userId)) + ' · ' + fac(by(DB.users, DB.meta.userId).facilityId),
+    `<button class="btn acc mini" onclick="go('register')">+ New patient</button>`) + `
+  <div class="grid g4" style="margin-bottom:14px">
+    ${kpi(mine.length, 'Patients')}${kpi(myRefs.filter(r => r.state !== 'Followed-up').length, 'Open referrals')}
+    ${kpi(fu.length, 'Follow-ups due')}${kpi(pendingCount(), 'Queued offline')}</div>
+  <div class="grid g2">
+    <div class="card"><h3>My referrals — journey status</h3><table><tr><th>Patient</th><th>Referral</th><th>Stage</th><th>Journey</th><th></th></tr>
+    ${myRefs.map(r => { const b = bundleFor(r.id); return `<tr><td><b>${esc(pat(r.patientId).name)}</b><div class="muted">${esc(pat(r.patientId).village)} · ${pat(r.patientId).distanceKm} km</div></td>
+      <td class="mono">${r.id}</td><td>${stateTag(r.state)}${isOverdue(r) ? ' <span class="tag t-bad">Overdue</span>' : ''}</td>
+      <td>${b ? (b.status === 'READY' ? '<span class="tag t-ok">TRAVEL READY</span>' : '<span class="tag t-bad">NOT READY</span>') : '<span class="tag t-mute">No bundle</span>'}</td>
+      <td><button class="btn alt mini" onclick="go('bundle/${r.id}')">Open</button></td></tr>`; }).join('')}</table></div>
+    <div class="card"><h3>Patients</h3><table><tr><th>Name</th><th>Age</th><th>Village</th><th>Sync</th><th></th></tr>
+    ${mine.map(p => `<tr><td>${esc(p.name)}</td><td>${p.age}${p.sex}</td><td>${esc(p.village)}</td>
+      <td>${p.synced ? '<span class="tag t-ok">Synced</span>' : '<span class="tag t-warn">On device</span>'}</td>
+      <td><button class="btn alt mini" onclick="go('patient/${p.id}')">Open</button></td></tr>`).join('')}</table></div>
+    <div class="card"><h3>Follow-up tasks assigned to me</h3>${fu.length ? `<ul class="list">${fu.map(f => `<li><b>${esc(pat(f.patientId).name)}</b> — ${esc(f.task)} <span class="tag ${f.state === 'Overdue' ? 't-bad' : 't-warn'}">${f.state} ${rel(f.dueAt)}</span></li>`).join('')}</ul>` : '<p class="muted">Nothing pending.</p>'}
+      <button class="btn alt mini" style="margin-top:10px" onclick="go('followup')">Open follow-up dashboard</button></div>
+    <div class="card"><h3>Device sync</h3><p class="muted">Registration, vitals and referrals work fully offline. Live facts (slots, stock) are shown as <b>Last Known</b> until the device syncs.</p>
+      <div class="row tight"><button class="btn" onclick="syncNow();render()">Sync Now</button><button class="btn alt" onclick="go('sync')">View queue (${pendingCount()})</button></div></div>
+  </div>`;
+}
+const kpi = (v, l) => `<div class="card kpi"><small>${l}</small><b>${v}</b></div>`;
